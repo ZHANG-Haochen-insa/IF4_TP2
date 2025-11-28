@@ -16,7 +16,7 @@
 #include "http_server.hpp"
 
 // A MODIFIER >>>>>>>>>>>>>>>>>>>>>>>>>>
-#define PWM_FREQ 36
+#define PWM_FREQ 1000
 #define PWM_RESOLUTION 15
 #define WIFI_NOM_ROBOT "PouetPouet"
 #define WIFI_MOT_DE_PASSE "123456789" // choose only numeric password

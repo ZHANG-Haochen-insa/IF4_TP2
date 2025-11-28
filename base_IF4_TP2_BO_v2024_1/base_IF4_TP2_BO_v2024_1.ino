@@ -27,11 +27,18 @@
 #define PWM_FREQ 36        // PWM信号的频率 (赫兹)
 #define PWM_RESOLUTION 15  // PWM信号的占空比分辨率 (位), 15位表示2^15个等级
 
+<<<<<<< HEAD
 // ==============================================================================
 // 常量定义
 // ==============================================================================
 const uint8_t PWM_frequence = PWM_FREQ;       // PWM频率,存储为常量
 const uint8_t PWM_resolution = PWM_RESOLUTION; // PWM分辨率,存储为常量
+=======
+// A MODIFIER >>>>>>>>>>>>>>>>>>>>>>>>>>
+#define PWM_FREQ 1000
+#define PWM_RESOLUTION 15
+ 
+>>>>>>> 91a64ff (pre config)
 
 // --- 编码器引脚定义 ---
 // 右侧编码器
