@@ -23,9 +23,6 @@
 // ==============================================================================
 // 用户可修改参数
 // ==============================================================================
-// >>>>>>>>>>>>>>>>>>>>>>>>>> 需要修改的参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<
-#define PWM_FREQ 36        // PWM信号的频率 (赫兹)
-#define PWM_RESOLUTION 15  // PWM信号的占空比分辨率 (位), 15位表示2^15个等级
 
 // A MODIFIER >>>>>>>>>>>>>>>>>>>>>>>>>>
 #define PWM_FREQ 1000
@@ -52,12 +49,93 @@ const uint8_t MRB = 32; // 右侧电机后退 (IN1 - Right Backward)
 // ==============================================================================
 // 全局变量 (待扩展)
 // ==============================================================================
-// 如果程序需要共享的全局变量,可以在这里声明。
+// PWM最大值，根据分辨率计算 (2^15 - 1 = 32767)
+const uint32_t PWM_MAX = (1 << PWM_RESOLUTION) - 1;
+// 电机速度设置 (占空比百分比，0-100)
+const uint8_t MOTOR_SPEED = 50; // 50% 占空比
 
 // ==============================================================================
 // 中断服务程序 (待扩展)
 // ==============================================================================
 // 如果需要使用中断来处理编码器或其他传感器数据,可以在这里定义中断服务函数。
+
+// ==============================================================================
+// 电机控制函数
+// ==============================================================================
+
+/**
+ * @brief 停止所有电机
+ */
+void stopMotors() {
+  analogWrite(MLF, 0);
+  analogWrite(MLB, 0);
+  analogWrite(MRF, 0);
+  analogWrite(MRB, 0);
+}
+
+/**
+ * @brief 使机器人前进
+ * @param speed 速度百分比 (0-100)
+ */
+void moveForward(uint8_t speed) {
+  uint32_t pwm_value = (PWM_MAX * speed) / 100;
+  // 左电机前进
+  analogWrite(MLF, pwm_value);
+  analogWrite(MLB, 0);
+  // 右电机前进
+  analogWrite(MRF, pwm_value);
+  analogWrite(MRB, 0);
+}
+
+/**
+ * @brief 使机器人后退
+ * @param speed 速度百分比 (0-100)
+ */
+void moveBackward(uint8_t speed) {
+  uint32_t pwm_value = (PWM_MAX * speed) / 100;
+  // 左电机后退
+  analogWrite(MLF, 0);
+  analogWrite(MLB, pwm_value);
+  // 右电机后退
+  analogWrite(MRF, 0);
+  analogWrite(MRB, pwm_value);
+}
+
+/**
+ * @brief 电机控制任务
+ * 执行：等待1秒 -> 前进1秒 -> 等待500ms -> 后退1秒 -> 停止
+ */
+void motorControlTask(void *pvParameters) {
+  Serial.println("Motor control task started");
+  
+  // 1. 等待500m秒
+  Serial.println("Waiting 0.5 second...");
+  vTaskDelay(pdMS_TO_TICKS(500));
+  
+  // 2. 前进500m秒
+  Serial.println("Moving forward for 0.5 second...");
+  moveForward(MOTOR_SPEED);
+  vTaskDelay(pdMS_TO_TICKS(500));
+  
+  // 3. 等待500毫秒
+  Serial.println("Waiting 500ms...");
+  stopMotors();
+  vTaskDelay(pdMS_TO_TICKS(500));
+  
+  // 4. 后退1秒
+  Serial.println("Moving backward for 0.5 second...");
+  moveBackward(MOTOR_SPEED);
+  vTaskDelay(pdMS_TO_TICKS(500));
+  
+  // 5. 停止
+  Serial.println("Stopping motors");
+  stopMotors();
+  
+  Serial.println("Motor control task completed");
+  
+  // 任务完成后删除自己
+  vTaskDelete(NULL);
+}
 
 // ==============================================================================
 // 支持函数
@@ -121,11 +199,22 @@ void setup() {
   init_encoder(SLA, SLB); // 初始化左侧编码器引脚
   init_encoder(SRA, SRB); // 初始化右侧编码器引脚
 
-  // setup()函数是作为FreeRTOS任务的一部分运行的。
-  // 一旦所有初始化完成,这个任务就不再需要了,因此它将自身挂起。
-  // 这意味着主要的程序逻辑将由其他FreeRTOS任务处理,而不是由setup()或loop()直接执行。
-  TaskHandle_t setup_task_t = xTaskGetCurrentTaskHandle(); // 获取当前setup任务的句柄
-  vTaskSuspend(setup_task_t); // 挂起当前setup任务,使其永远不再运行
+  // 创建电机控制任务
+  xTaskCreate(
+    motorControlTask,    // 任务函数
+    "MotorControl",      // 任务名称
+    2048,                // 堆栈大小
+    NULL,                // 任务参数
+    1,                   // 任务优先级
+    NULL                 // 任务句柄
+  );
+
+  Serial.println("Setup complete, motor control task created");
+  
+  // 挂起setup/loop任务，防止loop()被执行
+  // 获取当前任务句柄并挂起自己
+  TaskHandle_t setup_task = xTaskGetCurrentTaskHandle();
+  vTaskSuspend(setup_task);
 }
 
 /**
