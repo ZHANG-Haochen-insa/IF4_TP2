@@ -24,8 +24,8 @@
 // ==============================================================================
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>> 需要修改的WiFi参数 <<<<<<<<<<<<<<<<<<<<<<<<<<<<
-#define WIFI_NOM_ROBOT "MonRobot"     // WiFi热点的SSID (网络名称)
-#define WIFI_MOT_DE_PASSE "123456789" // WiFi热点的密码 (仅支持数字)
+#define WIFI_NOM_ROBOT "THIS_IS_NOT_A_ROBOT"     // WiFi热点的SSID (网络名称)
+#define WIFI_MOT_DE_PASSE "12345678" // WiFi热点的密码 (仅支持数字)
 
 // --- PWM参数 ---
 #define PWM_FREQ 1000              // PWM频率
