@@ -7,7 +7,7 @@
  * **程序目标:**
  * 本程序实现左轮的速度闭环控制:
  *   1. 使用P控制器进行速度控制
- *   2. 阶跃设定点测试: 0 -> 2.5 rad/s -> -2.5 rad/s -> 0 (每500ms)
+ *   2. 阶跃设定点测试: 0 -> 2.5 rad/s -> -2.5 rad/s -> 0 (每1000ms)
  *   3. 通过串口发送数据: 设定点、测量速度、控制信号 (TSV格式)
  */
 
@@ -31,12 +31,12 @@
 
 // --- 控制参数 ---
 #define CONTROL_PERIOD_MS 100   // 控制周期 (毫秒)
-#define STEP_PERIOD_MS 500      // 阶跃变化周期 (毫秒)
+#define STEP_PERIOD_MS 1000     // 阶跃变化周期 (毫秒)
 
 // --- P控制器参数 ---
 // Kp需要根据实际情况调整
 // 粗略估计: PWM_MAX对应最大速度约10 rad/s, 所以 Kp ≈ PWM_MAX / 10
-#define KP 2000.0f  // 比例增益 (可调整)
+#define KP 3000.0f  // 比例增益 (可调整)
 
 // --- 编码器引脚定义 ---
 // 左侧编码器
@@ -234,14 +234,14 @@ void speedControlTask(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   uint32_t elapsedTime = 0;
   
-  // 阶跃设定点序列: 0 -> 2.5 -> -2.5 -> 0 (每500ms变化)
+  // 阶跃设定点序列: 0 -> 2.5 -> -2.5 -> 0 (每1000ms变化)
   const float setpoints[] = {0.0f, 2.5f, -2.5f, 0.0f};
   const int numSetpoints = 4;
   int currentSetpointIndex = 0;
   uint32_t setpointChangeTime = 0;
   
-  // 总运行时间 = 4个阶跃 * 500ms = 2000ms + 额外时间观察最后状态
-  const uint32_t totalTimeMs = 3000;  // 3秒总时间
+  // 总运行时间 = 4个阶跃 * 1000ms = 4000ms + 额外时间观察最后状态
+  const uint32_t totalTimeMs = 5000;  // 5秒总时间
   
   while (elapsedTime < totalTimeMs) {
     // 等待下一个控制周期
