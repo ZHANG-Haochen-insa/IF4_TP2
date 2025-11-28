@@ -1,13 +1,13 @@
 /**
  * 5GE-IF4 & 5GEA-IF5
- * 左轮速度闭环控制程序 (P控制器)
+ * 左轮速度闭环控制程序 (PI控制器)
  * 版本: 2024.1
  * 日期: 2024年9月17日
  * 
  * **程序目标:**
  * 本程序实现左轮的速度闭环控制:
- *   1. 使用P控制器进行速度控制
- *   2. 阶跃设定点测试: 0 -> 2.5 rad/s -> -2.5 rad/s -> 0 (每1000ms)
+ *   1. 使用PI控制器进行速度控制
+ *   2. 阶跃设定点测试: 0 -> 2.5 rad/s -> -2.5 rad/s -> 0 (每5000ms)
  *   3. 通过串口发送数据: 设定点、测量速度、控制信号 (TSV格式)
  */
 
@@ -31,12 +31,13 @@
 
 // --- 控制参数 ---
 #define CONTROL_PERIOD_MS 100   // 控制周期 (毫秒)
-#define STEP_PERIOD_MS 1000     // 阶跃变化周期 (毫秒)
+#define STEP_PERIOD_MS 5000     // 阶跃变化周期 (毫秒)
 
-// --- P控制器参数 ---
-// Kp需要根据实际情况调整
-// 粗略估计: PWM_MAX对应最大速度约10 rad/s, 所以 Kp ≈ PWM_MAX / 10
-#define KP 3000.0f  // 比例增益 (可调整)
+// --- PI控制器参数 ---
+// Kp和Ki需要根据实际情况调整
+#define KP 6000.0f  // 比例增益 (可调整)
+#define KI 8000.0f  // 积分增益 (可调整)
+#define INTEGRAL_MAX 15000.0f  // 积分限幅，防止积分饱和
 
 // --- 编码器引脚定义 ---
 // 左侧编码器
@@ -71,6 +72,7 @@ volatile uint8_t lastLeftState = 0;
 float desiredSpeedLeft = 0.0f;  // 左轮期望速度 (rad/s)
 float measuredSpeedLeft = 0.0f; // 左轮测量速度 (rad/s)
 float controlSignalLeft = 0.0f; // 左轮控制信号
+float integralLeft = 0.0f;      // 左轮积分项
 
 // 临界区保护用的自旋锁
 portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -209,14 +211,32 @@ float calculateAngularVelocity(int32_t pulseCount, uint32_t periodMs) {
 // ==============================================================================
 
 /**
- * @brief P控制器
+ * @brief PI控制器
  * @param setpoint 设定值
  * @param measured 测量值
+ * @param integral 积分项指针
+ * @param dt 控制周期 (秒)
  * @return 控制信号
  */
-float pController(float setpoint, float measured) {
+float piController(float setpoint, float measured, float *integral, float dt) {
   float error = setpoint - measured;
-  return KP * error;
+  
+  // 更新积分项
+  *integral += error * dt;
+  
+  // 积分限幅，防止积分饱和
+  if (*integral > INTEGRAL_MAX) *integral = INTEGRAL_MAX;
+  if (*integral < -INTEGRAL_MAX) *integral = -INTEGRAL_MAX;
+  
+  // PI控制器输出: u = Kp * e + Ki * ∫e dt
+  return KP * error + KI * (*integral);
+}
+
+/**
+ * @brief 重置积分项 (设定点变化时调用)
+ */
+void resetIntegral() {
+  integralLeft = 0.0f;
 }
 
 // ==============================================================================
@@ -225,23 +245,27 @@ float pController(float setpoint, float measured) {
 
 /**
  * @brief 速度控制任务 (左轮)
- * 实现P控制器的闭环速度控制
+ * 实现PI控制器的闭环速度控制
  */
 void speedControlTask(void *pvParameters) {
-  Serial.println("Speed control task started (Left wheel only, P controller)");
+  Serial.println("Speed control task started (Left wheel only, PI controller)");
   Serial.println("Time(ms)\tSetpoint(rad/s)\tMeasured(rad/s)\tControl");
   
   TickType_t xLastWakeTime = xTaskGetTickCount();
   uint32_t elapsedTime = 0;
   
-  // 阶跃设定点序列: 0 -> 2.5 -> -2.5 -> 0 (每1000ms变化)
+  // 阶跃设定点序列: 0 -> 2.5 -> -2.5 -> 0 (每5000ms变化)
   const float setpoints[] = {0.0f, 2.5f, -2.5f, 0.0f};
   const int numSetpoints = 4;
   int currentSetpointIndex = 0;
   uint32_t setpointChangeTime = 0;
+  float lastSetpoint = 0.0f;
   
-  // 总运行时间 = 4个阶跃 * 1000ms = 4000ms + 额外时间观察最后状态
-  const uint32_t totalTimeMs = 5000;  // 5秒总时间
+  // 控制周期 (秒)
+  const float dt = CONTROL_PERIOD_MS / 1000.0f;
+  
+  // 总运行时间 = 4个阶跃 * 5000ms = 20000ms + 额外时间观察最后状态
+  const uint32_t totalTimeMs = 22000;  // 22秒总时间
   
   while (elapsedTime < totalTimeMs) {
     // 等待下一个控制周期
@@ -256,12 +280,18 @@ void speedControlTask(void *pvParameters) {
     }
     desiredSpeedLeft = setpoints[currentSetpointIndex];
     
+    // 如果设定点发生变化，重置积分项
+    if (desiredSpeedLeft != lastSetpoint) {
+      resetIntegral();
+      lastSetpoint = desiredSpeedLeft;
+    }
+    
     // 获取编码器计数并计算速度
     int32_t leftCount = getAndResetLeftEncoder();
     measuredSpeedLeft = calculateAngularVelocity(leftCount, CONTROL_PERIOD_MS);
     
-    // P控制器计算控制信号
-    controlSignalLeft = pController(desiredSpeedLeft, measuredSpeedLeft);
+    // PI控制器计算控制信号
+    controlSignalLeft = piController(desiredSpeedLeft, measuredSpeedLeft, &integralLeft, dt);
     
     // 应用控制信号到电机
     setLeftMotorPWM((int32_t)controlSignalLeft);
@@ -320,7 +350,7 @@ void init_encoder_with_interrupt(uint8_t pinA, uint8_t pinB,
 void setup() {
   Serial.begin(115200);
   while (!Serial);
-  Serial.println("Setup start: Left Wheel Speed Control (P Controller)");
+  Serial.println("Setup start: Left Wheel Speed Control (PI Controller)");
 
   // 初始化左电机PWM
   init_motor_pwm(MLF);
